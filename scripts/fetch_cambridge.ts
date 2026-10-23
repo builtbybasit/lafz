@@ -2,8 +2,9 @@
 // (github.com/chenelias/cambridge-dictionary-api), once, into data/audio/ and data/cambridge.json.
 // Usage: node scripts/fetch_cambridge.ts   (resumable: cached words are skipped)
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { eq } from "drizzle-orm";
-import { audioFile, db, words, type Accent } from "../server/db.ts";
+import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { audioFile, casing, words, type Accent } from "../server/db.ts";
 
 const API = "https://dictionary-api.eliaschen.dev/api/dictionary/en/";
 const CACHE = "data/cambridge.json";
@@ -73,6 +74,8 @@ async function fetchWord(word: string): Promise<Cached> {
 
 if (process.argv[1]?.endsWith("fetch_cambridge.ts")) {
   mkdirSync("data/audio", { recursive: true });
+  // word list from the local build DB; `node scripts/seed.ts` applies the cached forms
+  const db = drizzle(new Database("data/lafz.db"), { casing });
   const todo = db
     .select({ id: words.id, word: words.word })
     .from(words)
@@ -86,8 +89,6 @@ if (process.argv[1]?.endsWith("fetch_cambridge.ts")) {
     for (let w = todo.shift(); w; w = todo.shift()) {
       try {
         cache[w.word] = await fetchWord(w.word);
-        const c = cache[w.word];
-        if ("forms" in c) db.update(words).set({ forms: c.forms }).where(eq(words.id, w.id)).run();
       } catch (e) {
         failed++;
         console.error(String(e));

@@ -2,7 +2,12 @@
 // + word forms from data/cambridge.json. Learning progress is carried over by word text.
 // Usage: node scripts/seed.ts [--force]   (--force wipes progress; run `vp exec drizzle-kit push` first)
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { db, packs, profile, words, type Level, type Sense } from "../server/db.ts";
+import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { casing, packs, profile, words, type Level, type Sense } from "../server/db.ts";
+
+// The local build DB; scripts/sync_d1.ts copies it into D1.
+const db = drizzle(new Database("data/lafz.db"), { casing });
 
 const LEVELS: Level[] = ["A1", "A2", "B1"];
 const PACK_SIZE = 10;

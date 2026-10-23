@@ -45,10 +45,11 @@ function speak(text: string, rate = 0.85) {
 }
 
 /** A real Cambridge recording in the chosen accent; browser TTS when there isn't one. */
-function playWord(w: { id: number; word: string }) {
+function playWord(w: { word: string }) {
   if (!audio) return speak(w.word);
   if (ok) speechSynthesis.cancel();
-  audio.src = `/api/audio/${w.id}/${accent.value}`;
+  // same name scripts/fetch_cambridge.ts saves (audioFile in server/db.ts); missing files fall back to TTS
+  audio.src = `/audio/${w.word.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${accent.value}.mp3`;
   // AbortError just means a newer play() replaced this one
   audio.play().catch((e: DOMException) => e.name !== "AbortError" && speak(w.word));
 }

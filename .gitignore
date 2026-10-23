@@ -46,3 +46,6 @@ __screenshots__/
 # dictionary content is Cambridge UP copyright: keep it local
 data/
 .playwright-mcp/
+public/audio
+.cloudflare/
+.dev.vars
