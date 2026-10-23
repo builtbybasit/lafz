@@ -49,12 +49,19 @@ export function formsOf(word: string, verbs: ApiWord["verbs"]) {
   return [...out];
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Cambridge throttles bursts, so retry with backoff before giving up (a rerun tries again).
 async function download(url: string, file: string) {
-  if (existsSync(file)) return true;
-  const res = await fetch(url, { headers: BROWSER });
-  if (!res.ok || !res.headers.get("content-type")?.includes("audio")) return false;
-  writeFileSync(file, Buffer.from(await res.arrayBuffer()));
-  return true;
+  for (const wait of [0, 2000, 6000]) {
+    await sleep(wait);
+    const res = await fetch(url, { headers: BROWSER }).catch(() => null);
+    if (res?.ok && res.headers.get("content-type")?.includes("audio")) {
+      writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+      return true;
+    }
+  }
+  return false;
 }
 
 async function fetchWord(word: string): Promise<Cached> {
@@ -64,12 +71,9 @@ async function fetchWord(word: string): Promise<Cached> {
   const d = (await res.json()) as ApiWord;
   // A redirect to another headword ("ate" -> "eat") would teach the wrong sound.
   if (norm(d.word) !== norm(word)) return { missing: true };
-  const hit: Hit = { forms: formsOf(word, d.verbs), us: null, uk: null };
-  for (const accent of ["us", "uk"] as Accent[]) {
-    const p = d.pronunciation.find((x) => x.lang === accent);
-    if (p && (await download(p.url, audioFile(word, accent)))) hit[accent] = p.url;
-  }
-  return hit;
+  // URLs are kept even if a download fails; the audio pass below fetches whatever file is missing.
+  const url = (accent: Accent) => d.pronunciation.find((x) => x.lang === accent)?.url ?? null;
+  return { forms: formsOf(word, d.verbs), us: url("us"), uk: url("uk") };
 }
 
 if (process.argv[1]?.endsWith("fetch_cambridge.ts")) {
@@ -97,14 +101,36 @@ if (process.argv[1]?.endsWith("fetch_cambridge.ts")) {
         writeFileSync(CACHE, JSON.stringify(cache));
         console.log(`${done} done`);
       }
-      await new Promise((r) => setTimeout(r, 300));
+      await sleep(300);
     }
   };
   await Promise.all([worker(), worker(), worker(), worker()]);
   writeFileSync(CACHE, JSON.stringify(cache));
-  const hits = Object.values(cache).filter((c): c is Hit => "forms" in c);
+
+  // Audio pass: download every recording we have a URL for but no file yet.
+  const files = Object.entries(cache).flatMap(([word, c]) =>
+    "forms" in c
+      ? (["us", "uk"] as Accent[]).flatMap((a) => {
+          const url = c[a];
+          const file = audioFile(word, a);
+          return url && !existsSync(file) ? [{ url, file }] : [];
+        })
+      : [],
+  );
+  console.log(`${files.length} recordings to download`);
+  let missingAudio = 0;
+  const downloader = async () => {
+    for (let f = files.shift(); f; f = files.shift()) {
+      if (!(await download(f.url, f.file))) missingAudio++;
+      await sleep(250);
+    }
+  };
+  await Promise.all([downloader(), downloader()]);
+
+  const hits = Object.entries(cache).filter((e): e is [string, Hit] => "forms" in e[1]);
+  const have = (a: Accent) => hits.filter(([w]) => existsSync(audioFile(w, a))).length;
   console.log(
-    `${hits.length} found (${hits.filter((h) => h.us).length} US, ${hits.filter((h) => h.uk).length} UK audio), ` +
-      `${Object.keys(cache).length - hits.length} missing, ${failed} failed (rerun to retry)`,
+    `${hits.length} found (${have("us")} US, ${have("uk")} UK audio files), ` +
+      `${Object.keys(cache).length - hits.length} missing, ${failed} lookups and ${missingAudio} downloads failed (rerun to retry)`,
   );
 }
