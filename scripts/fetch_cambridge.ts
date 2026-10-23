@@ -122,6 +122,7 @@ if (process.argv[1]?.endsWith("fetch_cambridge.ts")) {
   const downloader = async () => {
     for (let f = files.shift(); f; f = files.shift()) {
       if (!(await download(f.url, f.file))) missingAudio++;
+      if (files.length % 100 === 0) console.log(`${files.length} recordings left`);
       await sleep(250);
     }
   };
